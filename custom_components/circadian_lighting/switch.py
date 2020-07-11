@@ -33,6 +33,8 @@ from homeassistant.util.color import (
 
 _LOGGER = logging.getLogger(__name__)
 
+_LOGGER.info("I'm here bithces!!!!!!!!!!!!!!!!!")
+
 ICON = 'mdi:theme-light-dark'
 
 CONF_LIGHTS_CT = 'lights_ct'
@@ -116,7 +118,7 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
     def __init__(self, hass, cl, name, lights_ct, lights_rgb, lights_xy, lights_brightness,
                     disable_brightness_adjust, min_brightness, max_brightness,
                     sleep_entity, sleep_state, sleep_colortemp, sleep_brightness,
-                    disable_entity, disable_state, initial_transition):
+                    disable_entity, disable_state, initial_transition, skip_non_circadian_state=False):
         """Initialize the Circadian Lighting switch."""
         self.hass = hass
         self._cl = cl
@@ -142,6 +144,7 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
         self._attributes = {}
         self._attributes['hs_color'] = self._hs_color
         self._attributes['brightness'] = None
+        self._skip_non_circadian_state = skip_non_circadian_state
 
         self._lights = []
         if lights_ct != None:
@@ -199,6 +202,11 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
     def device_state_attributes(self):
         """Return the attributes of the switch."""
         return self._attributes
+    
+    @property
+    def is_skip_non_circadian_state(self):
+        """Return true if the option to skip lights that aren't currently set to circadian value is set to true."""
+        return self._skip_non_circadian_state
 
     def turn_on(self, **kwargs):
         """Turn on circadian lighting."""
@@ -220,25 +228,29 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
     def is_sleep(self):
         return self._sleep_entity is not None and self.hass.states.get(self._sleep_entity).state == self._sleep_state
 
-    def calc_ct(self):
+    def calc_ct(self, previous=False):
         if self.is_sleep():
             _LOGGER.debug(self._name + " in Sleep mode")
             return color_temperature_kelvin_to_mired(self._sleep_colortemp)
+        elif previous:
+            return color_temperature_kelvin_to_mired(self._cl.data['previous_colortemp'])
         else:
             return color_temperature_kelvin_to_mired(self._cl.data['colortemp'])
 
-    def calc_rgb(self):
+    def calc_rgb(self, previous=False):
         if self.is_sleep():
             _LOGGER.debug(self._name + " in Sleep mode")
             return color_temperature_to_rgb(self._sleep_colortemp)
+        elif previous:
+            return color_temperature_to_rgb(self._cl.data['previous_colortemp'])
         else:
             return color_temperature_to_rgb(self._cl.data['colortemp'])
 
-    def calc_xy(self):
-        return color_RGB_to_xy(*self.calc_rgb())
+    def calc_xy(self, previous=False):
+        return color_RGB_to_xy(*self.calc_rgb(previous))
 
-    def calc_hs(self):
-        return color_xy_to_hs(*self.calc_xy())
+    def calc_hs(self, previous=False):
+        return color_xy_to_hs(*self.calc_xy(previous))
 
     def calc_brightness(self):
         if self._disable_brightness_adjust is True:
@@ -263,6 +275,9 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
         self.adjust_lights(self._lights, transition)
 
     def should_adjust(self):
+        # _LOGGER.info("what the fuck")
+        # _LOGGER.info(("percent", self._cl.data["percent"]))
+        # _LOGGER.info(("previous_percent", self._cl.data["previous_percent"]))
         if self._state is not True:
             _LOGGER.debug(self._name + " off - not adjusting")
             return False
@@ -285,16 +300,26 @@ class CircadianSwitch(SwitchEntity, RestoreEntity):
             rgb = tuple(map(int, self.calc_rgb())) if self._lights_rgb is not None else None
             xy = self.calc_xy() if self._lights_xy is not None else None
 
+            #previous_brightness = int((self._attributes['brightness'] / 100) * 254) if self._attributes['brightness'] is not None else None
+            previous_mired = int(self.calc_ct(previous=True)) if self._lights_ct is not None else None
+            previous_rgb = tuple(map(int, self.calc_rgb(previous=True))) if self._lights_rgb is not None else None
+            previous_xy = self.calc_xy(previous=True) if self._lights_xy is not None else None
+
             for light in lights:
                 """Set color of array of ct light if on."""
+                
                 if self._lights_ct is not None and light in self._lights_ct and is_on(self.hass, light):
                     service_data = {ATTR_ENTITY_ID: light}
+                    _LOGGER.info(("light object", light, self.hass.states.get(light)))
+                    _LOGGER.info(("previous_data", previous_mired))
+                    _LOGGER.info(("new_data", mired))
                     if mired is not None:
                         service_data[ATTR_COLOR_TEMP] = mired
                     if brightness is not None:
                         service_data[ATTR_BRIGHTNESS] = brightness
                     if transition is not None:
                         service_data[ATTR_TRANSITION] = transition
+                    _LOGGER.info(("service_data", service_data))
                     self.hass.services.call(
                         LIGHT_DOMAIN, SERVICE_TURN_ON, service_data)
                     _LOGGER.debug(light + " CT Adjusted - color_temp: " + str(mired) + ", brightness: " + str(brightness) + ", transition: " + str(transition))

@@ -307,6 +307,12 @@ class CircadianLighting(object):
 
     def _update(self, *args, **kwargs):
         """Update Circadian Values."""
+        self.data['previous_percent'] = self.data['percent']
+        self.data['previous_colortemp'] = self.data['colortemp']
+        self.data['previous_rgb_color'] = self.data['rgb_color']
+        self.data['previous_xy_color'] = self.data['xy_color']
+        self.data['previous_hs_color'] = self.data['hs_color']
+
         self.data['percent'] = self.calc_percent()
         self.data['colortemp'] = self.calc_colortemp()
         self.data['rgb_color'] = self.calc_rgb()
